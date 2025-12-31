@@ -14,6 +14,10 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            # Docker:
+            docker          # The CLI client
+            docker-compose  # The orchestration tool
+
             # Backend Runtime
             nodejs_20
             
