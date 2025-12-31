@@ -22,7 +22,7 @@ app.get('/pulse', async (req, res) => {
       postgres: `Connected (DB Time: ${dbTime})`,
       nixos: "Environment Validated"
     });
-  } catch (err) {
+  } catch (err: any) { // Temporary fix for the test pulse
     console.error(err);
     res.status(500).json({ status: "Engine Failure", error: err.message });
   }
