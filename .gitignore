@@ -1,0 +1,34 @@
+
+# --- NixOS & Development ---
+.direnv/
+result
+result-*
+.nix-helper/
+
+# --- Databases (The "Engine" State) ---
+# Very important: do not commit the actual DB files
+.data/
+
+# --- Node.js & TypeScript ---
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# --- Secrets & Config ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Docker ---
+# If you use custom docker log files
+*.log
+.docker/
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
