@@ -1,6 +1,6 @@
 import express from 'express';
-import { redis } from './infra/redis';
-import { db } from './infra/postgres';
+import { redis } from './infra/redis.js';
+import { db } from './infra/postgres.js';
 
 const app = express();
 const PORT = 3000;
