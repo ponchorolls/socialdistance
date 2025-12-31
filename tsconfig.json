@@ -5,15 +5,15 @@
     // "rootDir": "./src",
     // "outDir": "./dist",
 
-    // Environment Settings
-    // See also https://aka.ms/tsconfig/module
     "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "./dist",
-    "strict": true
+    "strict": true,
+    "outDir": "./dist",    // Environment Settings
+    // See also https://aka.ms/tsconfig/module
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -45,5 +45,9 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     
+  },
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifiers": true
   }
 }
