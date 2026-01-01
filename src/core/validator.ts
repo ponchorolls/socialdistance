@@ -1,46 +1,37 @@
-// Define the limit for human-powered speed (e.g., world-class downhill cycling)
-// 18 meters/second is roughly 40mph.
-const GLOBAL_SPEED_CAP_MPS = 18.0;
+// src/core/validator.ts
 
-const ALLOWED_ACTIVITIES = [
-  'running', 'walking', 'cycling', 'hiking', 
-  'swimming', 'rowing', 'nordic_ski'
-];
+// Speed limits in meters per second (m/s)
+const LIMITS = {
+  MAX_RUNNING: 12,    // ~27 mph (Usain Bolt sprint)
+  MAX_CYCLING: 25,    // ~56 mph (World-class downhill)
+  MIN_EFFORT: 0.1     // Filter out GPS "jitter" while standing still
+};
 
-export interface ValidationResult {
-  isValid: boolean;
-  reason?: string;
-  sanitizedDistance: number;
+export interface ActivityPacket {
+  distanceMeters: number;
+  durationSeconds: number;
+  type: 'run' | 'cycle' | 'walk';
 }
 
-/**
- * Validates if a movement was body-powered and not motorized.
- */
-export function validateHumanMovement(
-  distanceMeters: number, 
-  durationSeconds: number, 
-  activityType: string
-): ValidationResult {
+export function isHumanPowered(packet: ActivityPacket): { valid: boolean; reason?: string } {
+  const { distanceMeters, durationSeconds, type } = packet;
   
-  // 1. Activity Whitelist Check
-  if (!ALLOWED_ACTIVITIES.includes(activityType.toLowerCase())) {
-    return { isValid: false, reason: 'Activity type not in scope', sanitizedDistance: 0 };
-  }
+  if (durationSeconds <= 0) return { valid: false, reason: "Invalid duration" };
 
-  // 2. The Speed Check (Distance / Time)
   const avgSpeed = distanceMeters / durationSeconds;
-  
-  if (avgSpeed > GLOBAL_SPEED_CAP_MPS) {
-    return { isValid: false, reason: 'Speed exceeds human limits (Motorized?)', sanitizedDistance: 0 };
+
+  // Check against activity-specific ceilings
+  if (type === 'run' && avgSpeed > LIMITS.MAX_RUNNING) {
+    return { valid: false, reason: "Speed exceeds human running limits" };
   }
 
-  // 3. Minimum Threshold (Filter out GPS "jitter")
-  if (distanceMeters < 1.0) {
-    return { isValid: false, reason: 'Distance negligible', sanitizedDistance: 0 };
+  if (type === 'cycle' && avgSpeed > LIMITS.MAX_CYCLING) {
+    return { valid: false, reason: "Speed exceeds human cycling limits" };
   }
 
-  return {
-    isValid: true,
-    sanitizedDistance: distanceMeters
-  };
+  if (avgSpeed < LIMITS.MIN_EFFORT) {
+    return { valid: false, reason: "Insufficient effort detected (Jitter)" };
+  }
+
+  return { valid: true };
 }
