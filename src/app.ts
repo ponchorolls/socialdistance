@@ -3,6 +3,12 @@ import { redis } from './infra/redis.js';
 import { db } from './infra/postgres.js';
 import { isHumanPowered } from './core/validator.js';
 
+// Add this near the top of app.ts
+process.on('SIGINT', () => {
+  console.log("\nShutting down sd-engine...");
+  process.exit(0);
+});
+
 const app = express();
 const PORT = 3000;
 
@@ -38,10 +44,15 @@ app.get('/leaderboard', async (req, res) => {
     // Let's make it clean JSON
     const formatted = [];
     for (let i = 0; i < board.length; i += 2) {
-      formatted.push({
-        userId: board[i],
-        distance: parseFloat(board[i+1])
-      });
+      // Ensure we have a string before passing to parseFloat
+      const scoreString = board[i + 1];
+      
+      if (scoreString !== undefined) {
+        formatted.push({
+          userId: board[i],
+          distance: parseFloat(scoreString)
+        });
+      }
     }
 
     res.json({ leaderboard: formatted });

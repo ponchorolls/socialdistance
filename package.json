@@ -8,7 +8,7 @@
     "build": "tsc",
     "services:up": "docker-compose up -d",
     "services:stop": "docker-compose stop",
-    "db:init": "docker exec -it sd-postgres psql -U sd_admin -d social_distance -c \"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, total_distance_meters FLOAT DEFAULT 0.0, last_sync_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()); INSERT INTO users (id) VALUES ('1') ON CONFLICT DO NOTHING;\"",
+    "db:init": "docker exec -it sd-postgres psql -U sd_admin -d social_distance -c \"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, total_distance_meters FLOAT DEFAULT 0.0);\"",
     "dev": "npm run services:up && sleep 5 && npm run db:init && node --no-warnings=ExperimentalWarning --loader ts-node/esm src/app.ts"
   },
   "dependencies": {
