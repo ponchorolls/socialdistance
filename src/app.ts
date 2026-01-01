@@ -101,12 +101,3 @@ app.post('/ingest', express.json(), async (req, res) => {
     res.status(500).json({ error: "Storage failure" });
   }
 });
-
-// At the bottom of src/app.ts
-try {
-  app.listen(PORT, () => {
-    console.log(`🚀 Engine running on http://localhost:${PORT}`);
-  });
-} catch (e) {
-  console.error("FATAL STARTUP ERROR:", e);
-}
