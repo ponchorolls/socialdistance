@@ -14,24 +14,29 @@ const PORT = 3000;
 
 app.get('/pulse', async (req, res) => {
   try {
-    // 1. Test Redis
-    await redis.set('pulse_check', 'Redis is Active');
-    const redisVal = await redis.get('pulse_check');
+    // 1. Check Postgres: Can we talk to the DB?
+    const dbCheck = await db.query('SELECT NOW()');
+    
+    // 2. Check Redis: Is the cache responsive?
+    const redisCheck = await redis.ping();
 
-    // 2. Test Postgres
-    // We'll just check the current time from the DB to see if it's alive
-    const dbResult = await db.query('SELECT NOW() as current_time');
-    const dbTime = dbResult.rows[0].current_time;
-
-    res.json({
-      status: "Social Distance Engine: ONLINE",
-      redis: redisVal,
-      postgres: `Connected (DB Time: ${dbTime})`,
-      nixos: "Environment Validated"
+    // If both pass, we are truly ONLINE
+    res.json({ 
+      status: "ONLINE", 
+      timestamp: dbCheck.rows[0].now,
+      services: {
+        database: "CONNECTED",
+        cache: redisCheck === "PONG" ? "CONNECTED" : "OFFLINE"
+      }
     });
-    } catch (err: any) {
-    console.error("[sd] Database Error Detail:", err.message); // This tells us EXACTLY what failed
-    res.status(500).json({ error: "Storage failure", detail: err.message });
+  } catch (err: any) {
+    // If any service fails, the engine is DEGRADED
+    console.error("[sd] Pulse Check Failed:", err.message);
+    res.status(500).json({ 
+      status: "DEGRADED", 
+      error: "Service dependency unreachable",
+      detail: err.message
+    });
   }
 });
 
@@ -71,33 +76,63 @@ app.listen(PORT, () => {
 });
 
 app.post('/ingest', express.json(), async (req, res) => {
-  const { userId, distance, duration, activityType } = req.body;
+  const { userId, distance, duration, activityType, source } = req.body; // 'source' might be 'strava' or 'garmin'
 
-  // 1. Run the Validator
-  const check = isHumanPowered({ 
-    distanceMeters: distance, 
-    durationSeconds: duration, 
-    type: activityType 
-  });
-
-  if (!check.valid) {
-    console.log(`[sd] Rejected: ${check.reason}`);
-    return res.status(400).json({ error: check.reason });
-  }
-
-  // 2. Update the Odometer (Atomic Update)
   try {
-    // Update Postgres for permanence
-    await db.query(
-      'UPDATE users SET total_distance_meters = total_distance_meters + $1 WHERE id = $2',
-      [distance, userId]
+    // 1. Fetch user's preferred source
+    // Replacement for the "SELECT" block in /ingest
+    const userRes = await db.query(
+      `INSERT INTO users (id, preferred_source) 
+       VALUES ($1, 'garmin') 
+       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+       RETURNING preferred_source`, 
+      [userId]
     );
+    const user = userRes.rows[0];
 
-    // Update Redis for the leaderboard
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // 2. Source Lock Check: Only accept data from the chosen source
+    if (source !== user.preferred_source) {
+      console.log(`[sd] Ignoring ${source} data. User prefers ${user.preferred_source}.`);
+      return res.status(200).json({ status: "ignored", reason: "source_mismatch" });
+    }
+
+    // 3. Human-Powered Validation
+    const check = isHumanPowered({ distanceMeters: distance, durationSeconds: duration, type: activityType });
+    if (!check.valid) return res.status(400).json({ error: check.reason });
+
+    // 4. Atomic Updates
+    await db.query('UPDATE users SET total_distance_meters = total_distance_meters + $1 WHERE id = $2', [distance, userId]);
     await redis.zincrby('global_leaderboard', distance, userId);
 
     res.json({ status: "Distance recorded", newDistance: distance });
   } catch (err) {
-    res.status(500).json({ error: "Storage failure" });
+    res.status(500).json({ error: "Ingestion failure" });
+  }
+});
+
+app.put('/profile/:userId', express.json(), async (req, res) => {
+  const { userId } = req.params;
+  const { preferredSource } = req.body; // e.g., 'strava' or 'garmin'
+
+  const validSources = ['garmin', 'strava', 'wahoo'];
+  if (!validSources.includes(preferredSource)) {
+    return res.status(400).json({ error: "Invalid source provider" });
+  }
+
+  try {
+    const result = await db.query(
+      'UPDATE users SET preferred_source = $1 WHERE id = $2 RETURNING id, preferred_source',
+      [preferredSource, userId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ status: "Profile updated", user: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: "Update failed" });
   }
 });
