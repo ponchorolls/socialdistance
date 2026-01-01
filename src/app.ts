@@ -164,3 +164,31 @@ app.get('/stats', async (req, res) => {
     res.status(500).json({ error: "Stats unavailable" });
   }
 });
+
+// Strava Handshake & Ingest
+app.get('/webhooks/strava', (req, res) => {
+  const challenge = req.query['hub.challenge'];
+  const verifyToken = req.query['hub.verify_token'];
+
+  // You define this token in the Strava Dashboard
+  if (verifyToken === process.env.STRAVA_VERIFY_TOKEN) {
+    return res.json({ "hub.challenge": challenge });
+  }
+  res.status(403).end();
+});
+
+app.post('/webhooks/strava', express.json(), async (req, res) => {
+  console.log("🏃 Strava Activity Received:", req.body);
+  
+  // Strava sends an aspect_type (create/update/delete)
+  // We only care about new activities
+  if (req.body.aspect_type === 'create' && req.body.object_type === 'activity') {
+    const activityId = req.body.object_id;
+    const ownerId = req.body.owner_id;
+    
+    // Note: Strava webhooks usually only send the ID. 
+    // You then have to fetch the full activity details using their API.
+    // For now, we acknowledge receipt.
+  }
+  res.status(200).send('EVENT_RECEIVED');
+});

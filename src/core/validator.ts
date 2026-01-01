@@ -35,3 +35,19 @@ export function isHumanPowered(packet: ActivityPacket): { valid: boolean; reason
 
   return { valid: true };
 }
+
+export function normalizeActivity(raw: any, source: 'strava' | 'garmin') {
+  if (source === 'strava') {
+    return {
+      distanceMeters: raw.distance, // Strava is usually meters
+      durationSeconds: raw.moving_time,
+      type: raw.type.toLowerCase() === 'run' ? 'run' : 'cycle'
+    };
+  }
+  // Garmin usually sends a different payload structure
+  return {
+    distanceMeters: raw.distanceInMeters,
+    durationSeconds: raw.durationInSeconds,
+    type: raw.activityType.toLowerCase()
+  };
+}
