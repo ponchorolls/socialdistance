@@ -2,6 +2,7 @@ import express from 'express';
 import { redis } from './infra/redis.js';
 import { db } from './infra/postgres.js';
 import { isHumanPowered } from './core/validator.js';
+import { generateAnonName } from './core/naming.js';
 
 // Add this near the top of app.ts
 process.on('SIGINT', () => {
@@ -44,7 +45,8 @@ app.get('/leaderboard', async (req, res) => {
   try {
     // Get the top 10 users, highest score first
     const board = await redis.zrevrange('global_leaderboard', 0, 9, 'WITHSCORES');
-    
+    const totalRes = await db.query('SELECT SUM(total_distance_meters) as total FROM users');
+
     // Redis returns a flat array [user1, score1, user2, score2...]
     // Let's make it clean JSON
     const formatted = [];
@@ -60,7 +62,9 @@ app.get('/leaderboard', async (req, res) => {
       }
     }
 
-    res.json({ leaderboard: formatted });
+    res.json({
+      global_total: parseFloat(totalRes.rows[0].total || "0"),
+      leaderboard: formatted });
   } catch (err) {
     res.status(500).json({ error: "Leaderboard unavailable" });
   }
@@ -76,25 +80,27 @@ app.listen(PORT, () => {
 });
 
 app.post('/ingest', express.json(), async (req, res) => {
-  const { userId, distance, duration, activityType, source } = req.body; // 'source' might be 'strava' or 'garmin'
+  const { userId, distance, duration, activityType, source } = req.body;
 
   try {
-    // 1. Fetch user's preferred source
-    // Replacement for the "SELECT" block in /ingest
+    // 1. "Get or Create" the user with an anonymous name
+    // This replaces the old SELECT check. 
     const userRes = await db.query(
-      `INSERT INTO users (id, preferred_source) 
-       VALUES ($1, 'garmin') 
-       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
-       RETURNING preferred_source`, 
-      [userId]
+      `INSERT INTO users (id, preferred_source, display_name) 
+       VALUES ($1, 'garmin', $2) 
+       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id 
+       RETURNING preferred_source, display_name`, 
+      [userId, generateAnonName()]
     );
+
+    // This will now always exist
     const user = userRes.rows[0];
 
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // 2. Source Lock Check: Only accept data from the chosen source
+    // 2. Source Lock Check (Now uses the returned row)
+    // If the user exists, we respect their stored preference.
+    // If they are new, they default to 'garmin'.
     if (source !== user.preferred_source) {
-      console.log(`[sd] Ignoring ${source} data. User prefers ${user.preferred_source}.`);
+      console.log(`[sd] Ignoring ${source} data. ${user.display_name} prefers ${user.preferred_source}.`);
       return res.status(200).json({ status: "ignored", reason: "source_mismatch" });
     }
 
@@ -102,12 +108,19 @@ app.post('/ingest', express.json(), async (req, res) => {
     const check = isHumanPowered({ distanceMeters: distance, durationSeconds: duration, type: activityType });
     if (!check.valid) return res.status(400).json({ error: check.reason });
 
-    // 4. Atomic Updates
+    // 4. Persistence
     await db.query('UPDATE users SET total_distance_meters = total_distance_meters + $1 WHERE id = $2', [distance, userId]);
-    await redis.zincrby('global_leaderboard', distance, userId);
+    
+    // 5. Leaderboard Update (Use the display_name, not the userId!)
+    await redis.zincrby('global_leaderboard', distance, user.display_name);
 
-    res.json({ status: "Distance recorded", newDistance: distance });
+    res.json({ 
+      status: "Distance recorded", 
+      identity: user.display_name,
+      newDistance: distance 
+    });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Ingestion failure" });
   }
 });
@@ -134,5 +147,20 @@ app.put('/profile/:userId', express.json(), async (req, res) => {
     res.json({ status: "Profile updated", user: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: "Update failed" });
+  }
+});
+
+app.get('/stats', async (req, res) => {
+  try {
+    // Sum the distances of all users in Postgres
+    const result = await db.query('SELECT SUM(total_distance_meters) as total FROM users');
+    const totalMeters = parseFloat(result.rows[0].total || "0");
+    
+    res.json({
+      global_odometer_km: (totalMeters / 1000).toFixed(2),
+      active_humans: result.rowCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Stats unavailable" });
   }
 });

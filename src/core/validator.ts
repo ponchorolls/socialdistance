@@ -16,22 +16,22 @@ export interface ActivityPacket {
 export function isHumanPowered(packet: ActivityPacket): { valid: boolean; reason?: string } {
   const { distanceMeters, durationSeconds, type } = packet;
   
-  if (durationSeconds <= 0) return { valid: false, reason: "Invalid duration" };
+  // 1. Minimum Threshold Filter (The Jitter Filter)
+  // If the movement is less than 10 meters, ignore it.
+  if (distanceMeters < 10) {
+    return { valid: false, reason: "Movement below threshold (Jitter)" };
+  }
 
+  // 2. Minimum Pace Filter
+  // Humans moving intentionally usually move faster than 0.3 m/s (~1 km/h)
   const avgSpeed = distanceMeters / durationSeconds;
-
-  // Check against activity-specific ceilings
-  if (type === 'run' && avgSpeed > LIMITS.MAX_RUNNING) {
-    return { valid: false, reason: "Speed exceeds human running limits" };
+  if (avgSpeed < 0.3) {
+    return { valid: false, reason: "Pace too slow to be intentional movement" };
   }
 
-  if (type === 'cycle' && avgSpeed > LIMITS.MAX_CYCLING) {
-    return { valid: false, reason: "Speed exceeds human cycling limits" };
-  }
-
-  if (avgSpeed < LIMITS.MIN_EFFORT) {
-    return { valid: false, reason: "Insufficient effort detected (Jitter)" };
-  }
+  // 3. Maximum Ceilings (Previously added)
+  if (type === 'run' && avgSpeed > 12) return { valid: false, reason: "Speed exceeds human running limits" };
+  if (type === 'cycle' && avgSpeed > 25) return { valid: false, reason: "Speed exceeds human cycling limits" };
 
   return { valid: true };
 }
