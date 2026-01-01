@@ -4,33 +4,22 @@ Social Distance -- intentional connectiviy app focused on one thing -- Total Dis
 
 ## Description
 
-An in-depth paragraph about your project and overview of use.
+Data. All we get is data -- from everywhere. We are inundated with all of the metrics that surround our lives.
+This social fitness network is the antithesis of that. Striving to reduce the onslaught of values constantly bombarding us.
+
+This platform provides ONE important data point -- Total Distance Traveled.
+
+The main dashboard will act as a place to see how far you've gone. We're not interested in how you got there, how hard it was, or if you achieved your goals or not. Just what was done.
+
+We don't set your goals, we don't notify you or congratulate you.
+
+Enjoy the peace and quiet of an app that connects us with one common goal, The Journey.
 
 ## Getting Started
 
 ### Dependencies
 
 All dependencies are tracked within the `flake.nix` file
-
-### Installing
-
-* How/where to download your program
-* Any modifications needed to be made to files/folders
-
-### Executing program
-
-* How to run the program
-* Step-by-step bullets
-```
-code blocks for commands
-```
-
-## Help
-
-Any advise for common problems or issues.
-```
-command to run if program contains helper info
-```
 
 ## Authors
 
