@@ -5,6 +5,7 @@ const STRAVA_VERIFY_TOKEN = process.env.STRAVA_VERIFY_TOKEN;
 //
 
 
+import path from 'path';
 import express from 'express';
 import { redis } from './infra/redis.js';
 import { pool } from './infra/postgres.js';
@@ -282,6 +283,28 @@ app.get('/auth/callback', async (req, res) => {
   const stravaId = data.athlete?.id?.toString() || data.id?.toString();
   const username = data.athlete?.username || `user_${stravaId}`;
 
+  // 1. Check if we already have this user
+  const existingUser = await pool.query(
+    'SELECT display_name FROM users WHERE strava_id = $1',
+    [stravaId]
+  );
+
+  let displayName;
+
+  if (existingUser.rows.length > 0) {
+    // Use their existing anonymous name
+    displayName = existingUser.rows[0].display_name;
+  } else {
+    // Generate a brand new one for a new user
+    const adjectives = ["Misty", "Silent", "Swift", "Golden", "Vivid"];
+    const animals = ["Otter", "Falcon", "Fox", "Panda", "Deer"];
+    const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const randomAnimal = animals[Math.floor(Math.random() * animals.length)];
+    const randomNumber = Math.floor(1000 + Math.random() * 9000);
+  
+    displayName = `${randomAdjective}-${randomAnimal}-${randomNumber}`;
+  }
+
   console.log(`🔑 Tokens received for Strava ID: ${stravaId}`);
 
   if (!stravaId || !data.refresh_token) {
@@ -293,12 +316,12 @@ app.get('/auth/callback', async (req, res) => {
   
   try {
     await pool.query(
-      `INSERT INTO users (display_name, strava_id, strava_refresh_token) 
-       VALUES ($1, $2, $3)
-       ON CONFLICT (strava_id) 
-       DO UPDATE SET strava_refresh_token = $3`,
-      [username, stravaId, data.refresh_token]
-    );
+    `INSERT INTO users (display_name, strava_id, strava_refresh_token) 
+     VALUES ($1, $2, $3)
+     ON CONFLICT (strava_id) 
+     DO UPDATE SET strava_refresh_token = $3`,
+    [displayName, stravaId, data.refresh_token]
+  );
     res.send("Sync Complete.");
   } catch (dbError) {
     console.error("❌ Database Error:", dbError);
@@ -334,3 +357,45 @@ async function ingestDistance(stravaId: string, distanceMeters: number) {
     console.error(`❌ User with Strava ID ${stravaId} not found in pool.`);
   }
 }
+
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    // 1. Get the global total
+    const totalMeters = await redis.get('global_total') || '0';
+    
+    // 2. Get the top 20 users with their scores
+    const rawLeaderboard = await redis.zrevrange('leaderboard', 0, 19, 'WITHSCORES');
+    
+    // 3. Format the data into a clean JSON array
+    const leaderboard = [];
+    for (let i = 0; i < rawLeaderboard.length; i += 2) {
+      const name = rawLeaderboard[i];
+      const score = rawLeaderboard[i + 1];
+
+      // Only push if both name and score exist
+      if (name !== undefined && score !== undefined) {
+        leaderboard.push({
+          name: name,
+          distance: (parseFloat(score) / 1000).toFixed(2),
+        });
+      }
+    }
+
+    res.json({
+      globalTotalKm: (parseFloat(totalMeters) / 1000).toFixed(2),
+      players: leaderboard
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch leaderboard" });
+  }
+});
+
+// Serve the static files from the React build
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
+
+// The "Catch-all" handler: for any request that doesn't 
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
+});
