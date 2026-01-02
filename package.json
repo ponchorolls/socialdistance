@@ -10,7 +10,10 @@
     "services:stop": "docker-compose stop",
     "db:init": "docker exec -it sd-postgres psql -U sd_admin -d social_distance -c \"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, total_distance_meters FLOAT DEFAULT 0.0);\"",
     "dev": "npm run services:up && sleep 5 && npm run db:init && node --no-warnings=ExperimentalWarning --loader ts-node/esm src/app.ts",
-    "clean": "docker exec -it sd-redis redis-cli FLUSHALL && docker exec -it sd-postgres psql -U sd_admin -d social_distance -c 'TRUNCATE users CASCADE;'"
+    "clean": "docker exec -it sd-redis redis-cli FLUSHALL && docker exec -it sd-postgres psql -U sd_admin -d social_distance -c 'TRUNCATE users CASCADE;'",
+    "build:ui": "cd frontend && npm install && npm run build",
+    "start": "node dist/app.js",
+    "prod": "npm run build:ui && npm run dev"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
