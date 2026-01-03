@@ -1,17 +1,34 @@
 import { useEffect, useState } from 'react';
 
+import { io } from 'socket.io-client';
+
+// Outside the component
+const socket = io(); // Connects to the same host by default
+
 interface Player {
   name: string;
   distance: string;
 }
 
+interface LeaderboardData {
+  globalTotalKm: string;
+  players: Player[];
+}
+
 export default function App() {
-  const [data, setData] = useState<{ globalTotalKm: string; players: Player[] } | null>(null);
+  const [data, setData] = useState<LeaderboardData | null>(null);
 
   useEffect(() => {
-    fetch('/api/leaderboard')
-      .then(res => res.json())
-      .then(setData);
+    // 1. Initial Load via API
+    fetch('/api/leaderboard').then(res => res.json()).then(setData);
+
+    // 2. Real-time Listen
+    socket.on('leaderboardUpdate', (newData) => {
+      console.log("Live update received!");
+      setData(newData);
+    });
+
+    return () => { socket.off('leaderboardUpdate'); };
   }, []);
 
   if (!data) return <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">Loading...</div>;

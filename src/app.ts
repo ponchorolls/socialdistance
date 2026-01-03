@@ -14,6 +14,8 @@ import { generateAnonName } from './core/naming.js';
 
 import 'dotenv/config';
 
+import { Server } from 'socket.io';
+import { createServer } from 'http';
 
 // Redis Connection (The Real-time Leaderboard)
 // const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
@@ -32,6 +34,11 @@ process.on('SIGINT', () => {
 const app = express();
 app.use(express.json());
 const PORT = 3000;
+
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: "*" } // Allow the frontend to connect
+});
 
 app.get('/pulse', async (req, res) => {
   try {
@@ -90,14 +97,15 @@ app.get('/leaderboard', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`
-  🚀 sd engine pulse-check running at http://localhost:${PORT}/pulse
-  - Redis: Connected to Docker
-  - Postgres: Connected to Docker
-  - Environment: NixOS DevShell
-  `);
-});
+// app.listen(PORT, () => {
+//   console.log(`
+//   🚀 sd engine pulse-check running at http://localhost:${PORT}/pulse
+//   - Redis: Connected to Docker
+//   - Postgres: Connected to Docker
+//   - Environment: NixOS DevShell
+//   `);
+// });
+httpServer.listen(3000, () => console.log('🚀 Server & WebSockets on :3000'));
 
 app.post('/ingest', express.json(), async (req, res) => {
   const { userId, distance, duration, activityType, source } = req.body;
@@ -334,6 +342,20 @@ async function ingestDistance(stravaId: string, distanceMeters: number) {
   if (distanceMeters < 10) {
     console.log(`[sd] Ignoring tiny movement: ${distanceMeters}m`);
     return;
+
+    // Inside ingestDistance(stravaId, distanceMeters)
+    // 1. Update Postgres (The permanent record)
+    await pool.query('UPDATE users SET total_distance = total_distance + $1 ...', [distanceMeters, stravaId]);
+
+    // 2. Update Global Total in Redis (The "World" counter)
+    await redis.incrbyfloat('global_total', distanceMeters);
+
+    // 3. Update User Score in Redis (The "Leaderboard")
+    // Note: We use the *new total* from Postgres to keep everything in sync
+    const userResult = await pool.query('SELECT display_name, total_distance FROM users WHERE strava_id = $1', [stravaId]);
+    const { display_name, total_distance } = userResult.rows[0];
+
+    await redis.zadd('leaderboard', total_distance, display_name);
   }
 
   // 2. Update Postgres (The permanent record)
@@ -356,7 +378,21 @@ async function ingestDistance(stravaId: string, distanceMeters: number) {
   } else {
     console.error(`❌ User with Strava ID ${stravaId} not found in pool.`);
   }
+
+  // Fetch updated stats to send to everyone
+  const totalMeters = await redis.get('global_total') || '0';
+  const rawLeaderboard = await redis.zrevrange('leaderboard', 0, 19, 'WITHSCORES');
+  
+  // Format the data exactly like your API does
+  const update = {
+    globalTotalKm: (parseFloat(totalMeters) / 1000).toFixed(2),
+    players: [] // ... format the leaderboard here ...
+  };
+
+  // BROADCAST to all connected users
+  io.emit('leaderboardUpdate', update);
 }
+
 
 app.get('/api/leaderboard', async (req, res) => {
   try {
