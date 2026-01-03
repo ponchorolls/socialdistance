@@ -4,7 +4,7 @@ const STRAVA_VERIFY_TOKEN = process.env.STRAVA_VERIFY_TOKEN;
 // ... rest of your code
 //
 
-
+import cors from 'cors';
 import path from 'path';
 import express from 'express';
 import { redis } from './infra/redis.js';
@@ -17,27 +17,35 @@ import 'dotenv/config';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 
-// Redis Connection (The Real-time Leaderboard)
-// const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+interface Player {
+  name: string;
+  distance: string;
+}
 
 // Test connections on startup
-// pool.on('connect', () => console.log('🐘 Postgres Connected'));
 console.log('🐘 Postgres Pool Initialized');
 redis.on('connect', () => console.log('🚀 Redis Connected'));
 
-// Add this near the top of app.ts
 process.on('SIGINT', () => {
   console.log("\nShutting down sd-engine...");
   process.exit(0);
 });
 
 const app = express();
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://social-distance.com'],
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 app.use(express.json());
 const PORT = 3000;
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: "*" } // Allow the frontend to connect
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:3000', 'https://social-distance.com'],
+    methods: ["GET", "POST"]
+  }
 });
 
 app.get('/pulse', async (req, res) => {
@@ -74,11 +82,8 @@ app.get('/leaderboard', async (req, res) => {
     const board = await redis.zrevrange('global_leaderboard', 0, 9, 'WITHSCORES');
     const totalRes = await pool.query('SELECT SUM(total_distance_meters) as total FROM users');
 
-    // Redis returns a flat array [user1, score1, user2, score2...]
-    // Let's make it clean JSON
     const formatted = [];
     for (let i = 0; i < board.length; i += 2) {
-      // Ensure we have a string before passing to parseFloat
       const scoreString = board[i + 1];
       
       if (scoreString !== undefined) {
@@ -97,22 +102,12 @@ app.get('/leaderboard', async (req, res) => {
   }
 });
 
-// app.listen(PORT, () => {
-//   console.log(`
-//   🚀 sd engine pulse-check running at http://localhost:${PORT}/pulse
-//   - Redis: Connected to Docker
-//   - Postgres: Connected to Docker
-//   - Environment: NixOS DevShell
-//   `);
-// });
 httpServer.listen(3000, () => console.log('🚀 Server & WebSockets on :3000'));
 
 app.post('/ingest', express.json(), async (req, res) => {
   const { userId, distance, duration, activityType, source } = req.body;
 
   try {
-    // 1. "Get or Create" the user with an anonymous name
-    // This replaces the old SELECT check. 
     const userRes = await pool.query(
       `INSERT INTO users (id, preferred_source, display_name) 
        VALUES ($1, 'garmin', $2) 
@@ -121,12 +116,8 @@ app.post('/ingest', express.json(), async (req, res) => {
       [userId, generateAnonName()]
     );
 
-    // This will now always exist
     const user = userRes.rows[0];
 
-    // 2. Source Lock Check (Now uses the returned row)
-    // If the user exists, we respect their stored preference.
-    // If they are new, they default to 'garmin'.
     if (source !== user.preferred_source) {
       console.log(`[sd] Ignoring ${source} data. ${user.display_name} prefers ${user.preferred_source}.`);
       return res.status(200).json({ status: "ignored", reason: "source_mismatch" });
@@ -216,6 +207,8 @@ app.get('/webhooks/strava', (req, res) => {
 app.post('/webhooks/strava', async (req, res) => {
   const { aspect_type, object_id, owner_id } = req.body;
 
+  
+
   // 1. Acknowledge receipt immediately (Strava needs this < 2s)
   res.status(200).send('EVENT_RECEIVED');
 
@@ -252,8 +245,7 @@ app.post('/webhooks/strava', async (req, res) => {
 
         console.log(`🏃 New Activity: ${activity.name} - ${activity.distance}m`);
 
-        // 3. Record the distance in our system
-        // This will update the Postgres total and the Redis leaderboard
+        // Record the distance in our system
         await ingestDistance(owner_id.toString(), activity.distance);
       }
     } catch (err) {
@@ -319,9 +311,6 @@ app.get('/auth/callback', async (req, res) => {
     return res.status(400).send("Auth failed: No tokens received.");
   }
 
-  // Update or Create the user
-  // Using COALESCE ensures we don't overwrite an existing display_name with a generic one
-  
   try {
     await pool.query(
     `INSERT INTO users (display_name, strava_id, strava_refresh_token) 
@@ -337,28 +326,80 @@ app.get('/auth/callback', async (req, res) => {
   }   
 });
 
+// async function ingestDistance(stravaId: string, distanceMeters: number) {
+//   // 1. Validation Logic
+//   if (distanceMeters < 10) {
+//     console.log(`[sd] Ignoring tiny movement: ${distanceMeters}m`);
+//     return;
+
+//     // 1. Update Postgres (The permanent record)
+//     await pool.query('UPDATE users SET total_distance = total_distance + $1 ...', [distanceMeters, stravaId]);
+
+//     // 2. Update Global Total in Redis (The "World" counter)
+//     await redis.incrbyfloat('global_total', distanceMeters);
+
+//     // 3. Update User Score in Redis (The "Leaderboard")
+//     const userResult = await pool.query('SELECT display_name, total_distance FROM users WHERE strava_id = $1', [stravaId]);
+//     const { display_name, total_distance } = userResult.rows[0];
+
+//     await redis.zadd('leaderboard', total_distance, display_name);
+//   }
+
+//   // 2. Update Postgres (The permanent record)
+//   const pgResult = await pool.query(
+//     `UPDATE users 
+//      SET total_distance = total_distance + $1 
+//      WHERE strava_id = $2 
+//      RETURNING display_name, total_distance`,
+//     [distanceMeters, stravaId]
+//   );
+
+//   if (pgResult.rows.length > 0) {
+//     const { display_name, total_distance } = pgResult.rows[0];
+
+//     // 3. Update Redis (The real-time leaderboard)
+//     await redis.zadd('leaderboard', total_distance, display_name);
+    
+//     console.log(`✅ Success: ${display_name} reached ${total_distance / 1000}km`);
+//   } else {
+//     console.error(`❌ User with Strava ID ${stravaId} not found in pool.`);
+//   }
+
+//   const totalMeters = await redis.get('global_total') || '0';
+//   const rawLeaderboard = await redis.zrevrange('leaderboard', 0, 19, 'WITHSCORES');
+
+//   const players: Player[] = [];
+
+//   // Loop through the array 2 items at a time (Name, Score)
+//   for (let i = 0; i < rawLeaderboard.length; i += 2) {
+//     const name = rawLeaderboard[i];
+//     const score = rawLeaderboard[i + 1];
+
+//     // Only proceed if both values are strings and not undefined
+//     if (typeof name === 'string' && typeof score === 'string') {
+//       players.push({
+//         name: name,
+//         distance: (parseFloat(score) / 1000).toFixed(2),
+//       });
+//     }
+//   }
+
+//   const payload = {
+//     globalTotalKm: (parseFloat(totalMeters) / 1000).toFixed(2),
+//     players: players
+//   };
+
+//   io.emit('leaderboardUpdate', payload);
+// }
+
 async function ingestDistance(stravaId: string, distanceMeters: number) {
   // 1. Validation Logic
   if (distanceMeters < 10) {
     console.log(`[sd] Ignoring tiny movement: ${distanceMeters}m`);
-    return;
-
-    // Inside ingestDistance(stravaId, distanceMeters)
-    // 1. Update Postgres (The permanent record)
-    await pool.query('UPDATE users SET total_distance = total_distance + $1 ...', [distanceMeters, stravaId]);
-
-    // 2. Update Global Total in Redis (The "World" counter)
-    await redis.incrbyfloat('global_total', distanceMeters);
-
-    // 3. Update User Score in Redis (The "Leaderboard")
-    // Note: We use the *new total* from Postgres to keep everything in sync
-    const userResult = await pool.query('SELECT display_name, total_distance FROM users WHERE strava_id = $1', [stravaId]);
-    const { display_name, total_distance } = userResult.rows[0];
-
-    await redis.zadd('leaderboard', total_distance, display_name);
+    return; // Exit early correctly
   }
 
-  // 2. Update Postgres (The permanent record)
+  // 2. Update Postgres & Get New Total in one go
   const pgResult = await pool.query(
     `UPDATE users 
      SET total_distance = total_distance + $1 
@@ -370,29 +411,43 @@ async function ingestDistance(stravaId: string, distanceMeters: number) {
   if (pgResult.rows.length > 0) {
     const { display_name, total_distance } = pgResult.rows[0];
 
-    // 3. Update Redis (The real-time leaderboard)
-    // Redis uses 'ZADD' for Sorted Sets
+    // 3. Update Redis Global Total (This was the missing piece!)
+    await redis.incrbyfloat('global_total', distanceMeters);
+
+    // 4. Update Redis Leaderboard (Using total from Postgres for 100% sync)
     await redis.zadd('leaderboard', total_distance, display_name);
     
-    console.log(`✅ Success: ${display_name} reached ${total_distance / 1000}km`);
+    console.log(`✅ Success: ${display_name} moved ${distanceMeters}m. Total: ${total_distance / 1000}km`);
   } else {
-    console.error(`❌ User with Strava ID ${stravaId} not found in pool.`);
+    console.error(`❌ User with Strava ID ${stravaId} not found.`);
+    return; // Stop if no user found
   }
 
-  // Fetch updated stats to send to everyone
+  // 5. Prepare Broadcast Payload
   const totalMeters = await redis.get('global_total') || '0';
   const rawLeaderboard = await redis.zrevrange('leaderboard', 0, 19, 'WITHSCORES');
-  
-  // Format the data exactly like your API does
-  const update = {
+
+  // Use the helper we discussed or the inline loop:
+  const players: Player[] = [];
+  for (let i = 0; i < rawLeaderboard.length; i += 2) {
+    const name = rawLeaderboard[i];
+    const score = rawLeaderboard[i + 1];
+    if (typeof name === 'string' && typeof score === 'string') {
+      players.push({
+        name: name,
+        distance: (parseFloat(score) / 1000).toFixed(2),
+      });
+    }
+  }
+
+  const payload = {
     globalTotalKm: (parseFloat(totalMeters) / 1000).toFixed(2),
-    players: [] // ... format the leaderboard here ...
+    players: players
   };
 
-  // BROADCAST to all connected users
-  io.emit('leaderboardUpdate', update);
+  // 6. Push to all browsers!
+  io.emit('leaderboardUpdate', payload);
 }
-
 
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -430,8 +485,6 @@ app.get('/api/leaderboard', async (req, res) => {
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
-// The "Catch-all" handler: for any request that doesn't 
-// match one above, send back React's index.html file.
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
 });
