@@ -456,6 +456,28 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// DELETE THIS -- FOR DEV ONLY
+app.post('/api/admin/reset-all', async (req, res) => {
+  try {
+    // 1. Clear Postgres distances
+    await pool.query('UPDATE users SET total_distance = 0');
+
+    // 2. Wipe Redis
+    await redis.del('global_total');
+    await redis.del('leaderboard');
+
+    // 3. Tell the frontend everyone is at zero
+    io.emit('leaderboardUpdate', {
+      globalTotalKm: "0.00",
+      players: []
+    });
+
+    res.json({ message: "Challenge reset successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Reset failed" });
+  }
+});
+
 // Serve the static files from the React build
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, 'frontend/dist')));

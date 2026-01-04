@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 const socket = io(); // Connects to the same host by default
 
 interface Player {
+  stravaId: string;
   name: string;
   distance: string;
 }
@@ -17,19 +18,10 @@ interface LeaderboardData {
 export default function App() {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [view, setView] = useState<'list' | 'graph'>('list');
-  // useEffect(() => {
-  //   // 1. Initial Load via API
-  //   fetch('/api/leaderboard').then(res => res.json()).then(setData);
+  // Force it to be a string to be safe
+  const myStravaId = "999"; 
 
-  //   // 2. Real-time Listen
-  //   socket.on('leaderboardUpdate', (newData) => {
-  //     console.log("Live update received!");
-  //     setData(newData);
-  //   });
-
-  //   return () => { socket.off('leaderboardUpdate'); };
-  // }, []);
-  //
+// ... inside the map ...
   useEffect(() => {
     // 1. Initial Load with explicit error catching
     const loadInitialData = async () => {
@@ -116,35 +108,78 @@ export default function App() {
           transition={{ duration: 0.2 }}
         >
           {view === 'list' ? (
-            /* YOUR EXISTING LEADERBOARD LIST */
             <div className="grid gap-4">
-               {data.players.map((player, i) => (
-                 <div key={player.name} className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex justify-between items-center">
-                   <div className="flex items-center gap-4">
-                     <span className="text-zinc-700 font-mono text-xs">{String(i + 1).padStart(2, '0')}</span>
-                     <span className="font-bold uppercase tracking-tight">{player.name}</span>
-                   </div>
-                   <span className="font-mono text-emerald-400">{player.distance} KM</span>
-                 </div>
-               ))}
-            </div>
-          ) : (
-            /* THE VERTICAL BAR GRAPH */
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[2rem] h-80 flex items-end gap-1">
-              {data.players.map((player) => {
-                const leaderDistance = parseFloat(data.players[0].distance);
-                const height = leaderDistance > 0 ? (parseFloat(player.distance) / leaderDistance) * 100 : 0;
-      
+              {data.players.map((player, index) => {
+                const isMe = String(player.stravaId) === String(myStravaId);
+
                 return (
                   <div 
-                    key={player.name} 
-                    title={`${player.name}: ${player.distance}km`}
-                    className="flex-1 bg-emerald-500/20 border-t-2 border-emerald-400/50 rounded-t-sm hover:bg-emerald-400 transition-all duration-500"
-                    style={{ height: `${Math.max(height, 2)}%` }}
-                  />
+                    key={player.stravaId} 
+                    className={`flex items-center justify-between p-4 transition-all duration-300 ${
+                      isMe 
+                        ? 'bg-emerald-500/10 border-l-2 border-emerald-500' 
+                        : 'bg-zinc-900/50 border-l-2 border-transparent hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Using the index here */}
+                      <span className={`font-mono text-xs ${isMe ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+        
+                      <span className={`font-medium uppercase tracking-tight ${isMe ? 'text-white' : 'text-zinc-400'}`}>
+                        {player.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-1">
+                      <span className={`font-mono font-bold ${isMe ? 'text-emerald-400' : 'text-zinc-200'}`}>
+                        {player.distance}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 font-mono uppercase">km</span>
+                    </div>
+                  </div>
                 );
               })}
             </div>
+          ) : (
+            /* THE VERTICAL BAR GRAPH */
+            <div className="flex items-end h-64 gap-1 px-4">
+              {data.players.map((player) => {
+            // <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[2rem] h-80 flex items-end gap-1">
+            //     const leaderDistance = parseFloat(data.players[0].distance);
+            //     const height = leaderDistance > 0 ? (parseFloat(player.distance) / leaderDistance) * 100 : 0;
+      
+            //     return (
+            //       <div 
+            //         key={player.name} 
+            //         title={`${player.name}: ${player.distance}km`}
+            //         className="flex-1 bg-emerald-500/20 border-t-2 border-emerald-400/50 rounded-t-sm hover:bg-emerald-400 transition-all duration-500"
+            //         style={{ height: `${Math.max(height, 2)}%` }}
+            //       />
+            //     );
+            //   })}
+            // </div>
+            const isMe = String(player.stravaId) === String(myStravaId);
+    
+                const leaderDistance = parseFloat(data.players[0].distance);
+                const height = leaderDistance > 0 ? (parseFloat(player.distance) / leaderDistance) * 100 : 0;
+
+                return (
+                  <div key={player.stravaId} className="flex-1 group relative flex flex-col justify-end h-full">
+                    {/* The "isMe" variable is now available for your styles below */}
+                    <div 
+                      className={`w-full rounded-t-sm transition-all duration-700 ${
+                        isMe 
+                          ? 'bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] z-10' 
+                          : 'bg-zinc-800'
+                      }`}
+                      style={{ height: `${Math.max(height, 2)}%` }}
+                    />
+                  </div>
+                );
+              })}
+          </div>
           )}
         </motion.div>
       </div>
