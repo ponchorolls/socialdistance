@@ -1,19 +1,12 @@
 import 'dotenv/config';
-
-const STRAVA_VERIFY_TOKEN = process.env.STRAVA_VERIFY_TOKEN;
-// ... rest of your code
-//
-
 import cors from 'cors';
 import path from 'path';
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { redis } from './infra/redis.js';
 import { pool } from './infra/postgres.js';
 import { isHumanPowered } from './core/validator.js';
 import { generateAnonName } from './core/naming.js';
-
-import 'dotenv/config';
-
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 
@@ -32,6 +25,7 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+const STRAVA_VERIFY_TOKEN = process.env.STRAVA_VERIFY_TOKEN;
 const app = express();
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'https://social-distance.com'],
@@ -40,7 +34,6 @@ app.use(cors({
 }));
 app.use(express.json());
 const PORT = 3000;
-
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -485,3 +478,16 @@ app.use(express.static(path.join(__dirname, 'frontend/dist')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
 });
+
+app.post('/api/strava-webhook', async (req: any, res: Response) => {
+  const { stravaId, name, meters } = req.body;
+
+  // We check if the broadcaster was attached by server.ts
+  if (req.broadcastUpdate) {
+    await req.broadcastUpdate(stravaId, name, meters);
+  }
+
+  res.sendStatus(200);
+});
+
+export default app;
