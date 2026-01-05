@@ -1,34 +1,28 @@
+// vite.config.ts
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react-swc'
+import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// export default defineConfig({
-//   plugins: [
-//     react(),
-//     tailwindcss(),
-//   ],
-//   server: {
-//     proxy: {
-//       '/api': 'http://localhost:3000',
-//       '/login': 'http://localhost:3000'
-//     }
-//   }
-// })
 export default defineConfig({
   plugins: [
     react(),
-    tailwindcss(),
-  ],
+    tailwindcss()
+   ],
   server: {
+    port: 3000,
+    strictPort: true,
+    allowedHosts: [
+      'social-distance.com',
+      '.social-distance.com' // The dot allows all subdomains too
+    ],
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
+      // This redirects all socket traffic to the server
       '/socket.io': {
-        target: 'http://localhost:3000',
-        ws: true, // Crucial for WebSockets!
+        target: 'http://localhost:3001',
+        ws: true,
       },
+      // This redirects all /api calls to the server
+      '/api': 'http://localhost:3001',
     },
   },
 })

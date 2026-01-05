@@ -9,6 +9,7 @@ import { isHumanPowered } from './core/validator.js';
 import { generateAnonName } from './core/naming.js';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
+import { getLeaderboardData } from './leaderboard.js'; 
 
 interface Player {
   stravaId: string;
@@ -39,6 +40,16 @@ const io = new Server(httpServer, {
   cors: {
     origin: ['http://localhost:5173', 'http://localhost:3000', 'https://social-distance.com'],
     methods: ["GET", "POST"]
+  }
+});
+
+// This runs when you refresh the page
+app.get('/api/leaderboard', async (_req, res) => {
+  try {
+    const data = await getLeaderboardData();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch" });
   }
 });
 
@@ -122,7 +133,6 @@ app.get('/leaderboard', async (req, res) => {
   }
 });
 
-httpServer.listen(3000, () => console.log('🚀 Server & WebSockets on :3000'));
 
 app.post('/ingest', express.json(), async (req, res) => {
   const { userId, distance, duration, activityType, source } = req.body;
